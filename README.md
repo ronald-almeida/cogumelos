@@ -1,48 +1,47 @@
 # Cogumelos
 
-Landing page responsiva e checkout em duas etapas para um curso de R$ 297,00 no Pix. HTML, CSS e JavaScript, com funções Node.js na Vercel, sem dependências de runtime.
+Página de vendas responsiva, vídeo YouTube e checkout Pix de R$ 297,00. HTML/CSS/JS com funções Node.js na Vercel. Produção: https://cogumelos.vercel.app.
 
-## Executar
+## Desenvolvimento
 
-Node.js 22 ou superior.
+Node.js 22+. Instale com `pnpm install`, execute `pnpm dev`, `pnpm test` e `pnpm build`. Em ambientes Windows que bloqueiam subprocessos dos testes, use `node --test --test-isolation=none`.
 
-```sh
-npm run dev
-npm test
-npm run build
-```
+O build copia somente `public/` para `dist/`. A Vercel empacota `api/` separadamente. Segredos, bibliotecas e arquivos de desenvolvimento não são servidos pelo site.
 
-Preview: http://127.0.0.1:3000. O build copia `public/` para `dist/`. A Vercel publica `dist/` e empacota `api/` como funções serverless.
+## Configuração privada
 
-## Estado real do pagamento
+- `FIREBOT_SECRET_KEY`: chave privada da FireBot, somente no ambiente production da Vercel.
+- `ORDER_TOKEN_SECRET`: segredo aleatório de pelo menos 32 caracteres para assinar consultas. Não rotacionar com pedidos em andamento sem plano de recuperação.
+- `BLOB_STORE_ID`: store privado conectado ao projeto via Vercel OIDC. Alternativa local: `BLOB_READ_WRITE_TOKEN`.
+- `SUPPORT_WHATSAPP`: `5575988393742`.
 
-**O Pix não está integrado e não recebe pagamentos nesta versão.** A documentação fornecida (`https://firebotbr.com/integracoes/docs`) exigiu login e não foi possível verificar o contrato da API. Nenhum endpoint ou payload de provedor foi inventado. `lib/firebot.js` permanece fechado, `GET /api/checkout` informa `available: false`, e a tentativa de pagamento retorna HTTP 503. Os dados digitados no checkout não são enviados enquanto essa função está desativada.
+Sem qualquer configuração exigida, a criação e a consulta de pagamentos permanecem indisponíveis. Não há modo de simulação em produção. Alterações de ambiente exigem um novo deployment.
 
-A interface de revisão, Pix copia e cola, QR em PNG inline e estados de confirmação está preparada para o contrato interno abaixo. Isso não significa que a API FireBot use esses campos.
+O store privado `cogumelos-orders` está conectado ao projeto em São Paulo. Credenciais não entram no Git. Não usar chaves de saque, variáveis públicas ou dados reais de clientes em testes.
 
-### Para concluir a integração
+## Contrato FireBot consultado
 
-1. Consultar a documentação autenticada e confirmar se o provedor desejado é FireBot (URL fornecida) ou PayPix (nome citado no pedido).
-2. Implementar criação e consulta em `lib/firebot.js` conforme a documentação, com segredo exclusivamente em variável privada da Vercel. Nunca commitar chaves ou usar variáveis públicas para elas.
-3. Persistir pedidos, identificadores do provedor e chaves de idempotência em armazenamento durável. Repetir uma tentativa deve recuperar o mesmo pedido, inclusive após timeout ou recarga. A chave mantida no navegador só evita cliques repetidos durante a mesma navegação; não substitui persistência no servidor.
-4. Validar webhooks assinados conforme o provedor e verificar valor, moeda e identidade do pedido no servidor. Implementar `api/payment-status.js` com token de consulta imprevisível ou assinado, expiração e proteção contra abuso. Nunca aceitar status `paid` enviado pelo navegador.
-5. Integrar a entrega/área do aluno escolhida e publicar os dados do vendedor, suporte, conteúdo, duração de acesso e condições comerciais. Os textos atuais identificam expressamente a oferta como em preparação.
-6. Testar criação, duplicidade, timeout, expiração, cancelamento e confirmação em sandbox do provedor. Só então alterar `isPaymentAvailable()`.
+Documentação autenticada: https://firebotbr.com/integracoes/docs.
 
-### Contrato interno esperado
+- `POST https://firebotbr.com/api/v1/pix/create`, cabeçalho `x-api-key`, `amount: 297` em reais, `productType: DIGITAL`, descrição, URL da loja e cliente com name/email/cpf/phone.
+- Criação exige resposta com transactionId, amount, status PENDING e pixCopiaECola. QR gerado localmente no backend com `qrcode`.
+- `GET /api/v1/pix/{transactionId}` com a chave privada consulta o pagamento. A resposta é validada por ID, valor e status; respostas sem esses dados não liberam acesso. O endpoint de consulta está documentado, mas o formato real da resposta ainda precisa ser confirmado com uma credencial liberada e pedido real do lojista.
+- `POST /api/webhook` valida `x-signature` como HMAC-SHA256 do corpo bruto com a chave secreta. Considera somente eventos de venda e faz nova consulta autenticada. O webhook não concede acesso por conta própria. Sua configuração no painel FireBot ainda depende da conclusão da credencial; a consulta automática no checkout funciona independentemente do webhook.
 
-`POST /api/checkout`: JSON `{ customer: { name, email, phone } }`, cabeçalho `Idempotency-Key`. Valor definido exclusivamente em `lib/offer.js`: 29700 centavos. A resposta futura deverá conter `amountCents`, `pixCode`, `statusToken` e opcionalmente `qrImage` (PNG data URI). A criação do QR deve ocorrer no servidor, sem enviar o código a geradores públicos de QR.
+## Fluxo e proteção contra duplicação
 
-`POST /api/payment-status`: JSON `{ statusToken }`; resposta interna `{ status: 'pending' | 'paid' | 'expired' | 'cancelled' }` obtida do servidor/provedor autenticado.
+O preço é fixado em `lib/offer.js`, nunca aceito do navegador. CPF é validado nos dois lados. O servidor cria um registro imutável antes de chamar a FireBot, pois a documentação não informa idempotência nativa. Repetições recuperam o mesmo resultado. Uma resposta ambígua do provedor não é repetida automaticamente: o pedido permanece em consulta e deve ser reconciliado no painel FireBot antes de iniciar outro.
 
-## Referência e identidade
+Claims, resultados e índice de transações ficam em Blob privado por 30 dias, sem nome, CPF ou contatos em texto. Identificadores de consulta assinados expiram após 30 dias. A sessão do navegador guarda apenas a chave de recuperação e o token de consulta. O limite de criação é de cinco tentativas por conexão por hora; os registros de limite expiram após um dia.
 
-Referência de estrutura e tema: https://www.amoki.com.br/. O botão da referência abre um formulário de nome, e-mail e WhatsApp antes do checkout. Não foi enviado cadastro à AMOKI; o checkout final da Hotmart não foi acessado. O redesign usa a identidade provisória **Cogumelos**, textos próprios e não reutiliza marca, depoimentos, CNPJ ou contatos da referência. O conteúdo dos módulos é uma proposta editorial para revisão, não um curso produzido ou uma área de alunos entregue.
+`POST /api/checkout`: `{customer:{name,email,phone,cpf}}`, cabeçalho `Idempotency-Key` UUIDv4. Resposta: `{amountCents,pixCode,statusToken,qrImage}`.
 
-## Imagem
+`POST /api/payment-status`: `{statusToken}` consulta ou `{resumeKey}` recupera um pedido. Somente PAID validado retorna o link de solicitação de acesso.
 
-`public/assets/cultivo.png`: imagem ilustrativa criada com a ferramenta integrada ImageGen. Prompt: fotografia editorial vertical de cogumelos ostra creme e cinza crescendo em um bloco de substrato sobre uma bancada de madeira, fundo verde floresta desfocado, luz natural lateral suave, texturas orgânicas, sem pessoas, logotipos ou texto. A imagem não documenta uma produção real.
+`/obrigado` verifica novamente o pedido antes de mostrar a confirmação e o botão WhatsApp. Sem pedido ou com Pix pendente, não apresenta sucesso. A entrega do curso é manual pelo atendimento, conforme solicitado pelo proprietário; não há área de alunos ou curso produzido neste repositório.
 
-## Verificação
+## Verificação e limitações
 
-`npm test` cobre validação, normalização, preço fixo, adulteração de valor, métodos, origem, JSON/corpo inválido e bloqueio de criação/confirmação sem provedor. O servidor local só escuta em 127.0.0.1. Arquivos locais e segredos não são publicados por ele.
+Os testes usam respostas simuladas em memória, sem chamadas financeiras reais. Cobrem validação, preço adulterado, CPF, métodos/origem, concorrência, recuperação, timeout, valor/ID divergentes, token forjado, HMAC e limite de tentativas. A integração real exige chave privada disponível, validação da autenticação e confirmação do contrato de consulta. Não declarar pagamentos ativos apenas porque os testes passaram.
+
+Identidade visual provisória Cogumelos, textos próprios, tema inspirado em amoki.com.br. O vídeo `8jJKj--y1Ic` foi fornecido pelo usuário e é incorporado via YouTube, iniciando em 1 segundo. A imagem `public/assets/cultivo.png` foi criada por ImageGen e é ilustrativa. Os módulos são uma proposta editorial, não material didático produzido.

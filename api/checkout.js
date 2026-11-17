@@ -1,5 +1,5 @@
 import { OFFER } from '../lib/offer.js';
-import { isPaymentAvailable, createPayment } from '../lib/firebot.js';
+import { isPaymentAvailable, createPayment, PaymentError, validIdempotencyKey } from '../lib/firebot.js';
 import { reply, hasSameOrigin, readJson } from '../lib/http.js';
 import { validateCustomer } from '../public/validation.js';
 export default async function handler(req, res) {
@@ -14,8 +14,8 @@ export default async function handler(req, res) {
     if (!result.valid) return reply(res,400,{message:'Confira seus dados.',errors:result.errors});
     if (!isPaymentAvailable()) return reply(res,503,{code:'PAYMENTS_UNAVAILABLE',message:'As inscrições ainda não estão disponíveis. Nenhuma cobrança foi criada.'});
     const idempotencyKey = req.headers['idempotency-key'];
-    if (typeof idempotencyKey !== 'string' || !/^[\da-f-]{36}$/i.test(idempotencyKey)) return reply(res,400,{message:'Recarregue a página e tente novamente.'});
-    const payment = await createPayment({offer:OFFER,customer:result.customer,idempotencyKey});
+    if (!validIdempotencyKey(idempotencyKey)) return reply(res,400,{message:'Recarregue a página e tente novamente.'});
+    const payment = await createPayment({customer:result.customer,idempotencyKey,ip:req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown'});
     return reply(res,201,payment);
-  } catch { return reply(res,400,{message:'Não foi possível processar a solicitação. Confira os dados e tente novamente.'}); }
+  } catch (error) { return reply(res,error instanceof PaymentError ? error.status : error instanceof SyntaxError || ['BODY_TOO_LARGE','UNSUPPORTED_TYPE'].includes(error.message) ? 400 : 503,{code:error.code || 'CHECKOUT_UNAVAILABLE',message:error instanceof PaymentError ? error.message : 'Não foi possível processar a solicitação. Tente consultar o pedido novamente.'}); }
 }

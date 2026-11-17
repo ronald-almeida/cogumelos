@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import checkout from '../api/checkout.js';
 import paymentStatus from '../api/payment-status.js';
+import webhook from '../api/webhook.js';
 const root = path.resolve(import.meta.dirname, '../public');
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.jpg':'image/jpeg'};
 const server=http.createServer(async(req,res)=>{
@@ -10,6 +11,7 @@ const server=http.createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/api/checkout')return await checkout(req,res);
     if(url.pathname==='/api/payment-status')return await paymentStatus(req,res);
+    if(url.pathname==='/api/webhook')return await webhook(req,res);
     if(!['GET','HEAD'].includes(req.method)){res.writeHead(405).end();return;}
     let name=decodeURIComponent(url.pathname);
     if(name==='/')name='/index.html';
@@ -21,4 +23,5 @@ const server=http.createServer(async(req,res)=>{
     res.end(req.method==='HEAD'?undefined:data);
   }catch{res.writeHead(404,{'Content-Type':'text/plain; charset=utf-8'}).end('Página não encontrada.');}
 });
-server.listen(3000,'127.0.0.1',()=>console.log('Local: http://127.0.0.1:3000'));
+const port = Number(process.env.PORT || 3000);
+server.listen(port,'127.0.0.1',()=>console.log(`Local: http://127.0.0.1:${port}`));
